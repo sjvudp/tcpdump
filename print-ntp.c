@@ -133,8 +133,8 @@ struct ntp_time_data {
 	struct l_fixedpt org_timestamp;
 	struct l_fixedpt rec_timestamp;
 	struct l_fixedpt xmt_timestamp;
-        nd_uint32_t key_id;
-        nd_uint8_t  message_digest[16];
+        uint32_t key_id;
+        uint8_t  message_digest[20];
 };
 /*
  *	Leap Second Codes
@@ -678,22 +678,35 @@ ntp_time_print(netdissect_options *ndo,
 				    &(td->xmt_timestamp));
 		}
 	}
-	if ((sizeof(*td) - length) == 16) { 	/* Optional: key-id */
+	if ((sizeof(*td) - length) == 20) { 	/* Optional: key-id */
 		ND_TCHECK(td->key_id);
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(&td->key_id)));
-	} else if ((sizeof(*td) - length) == 0) {
-		/* Optional: key-id + authentication */
+	} else if ((sizeof(*td) - length) == 4) {
+		/* Optional: key-id + 128-bit digest */
 		ND_TCHECK(td->key_id);
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(&td->key_id)));
-		ND_TCHECK2(td->message_digest, sizeof (td->message_digest));
+		ND_TCHECK2(td->message_digest, 16);
 		indent(ndo, i_lev);
                 ND_PRINT((ndo, "Authentication: %08x%08x%08x%08x",
 			  EXTRACT_32BITS(td->message_digest),
 			  EXTRACT_32BITS(td->message_digest + 4),
 			  EXTRACT_32BITS(td->message_digest + 8),
 			  EXTRACT_32BITS(td->message_digest + 12)));
+	} else if ((sizeof(*td) - length) == 0) {
+		/* Optional: key-id + 160-bit digest */
+		ND_TCHECK(td->key_id);
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(&td->key_id)));
+		ND_TCHECK2(td->message_digest, 20);
+		indent(ndo, i_lev);
+                ND_PRINT((ndo, "Authentication: %08x%08x%08x%08x%08x",
+			  EXTRACT_32BITS(td->message_digest),
+			  EXTRACT_32BITS(td->message_digest + 4),
+			  EXTRACT_32BITS(td->message_digest + 8),
+			  EXTRACT_32BITS(td->message_digest + 12),
+			  EXTRACT_32BITS(td->message_digest + 16)));
         }
 	return;
 
