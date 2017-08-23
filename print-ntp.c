@@ -196,10 +196,10 @@ static const struct tok ntp_mode_values[] = {
 };
 
 static const struct tok ntp_leapind_values[] = {
-    { NO_WARNING,     "" },
+    { NO_WARNING,     "Nominal" },
     { PLUS_SEC,       "+1s" },
     { MINUS_SEC,      "-1s" },
-    { ALARM,          "clock unsynchronized" },
+    { ALARM,          "clock unsync." },
     { 0, NULL }
 };
 
