@@ -196,10 +196,10 @@ static const struct tok ntp_mode_values[] = {
 };
 
 static const struct tok ntp_leapind_values[] = {
-    { NO_WARNING,     "" },
+    { NO_WARNING,     "Nominal" },
     { PLUS_SEC,       "+1s" },
     { MINUS_SEC,      "-1s" },
-    { ALARM,          "clock unsynchronized" },
+    { ALARM,          "clock unsync." },
     { 0, NULL }
 };
 
@@ -258,6 +258,7 @@ ntp_time_print(netdissect_options *ndo,
 {
 	if (length < NTP_TIMEMSG_MINLEN)
 		goto invalid;
+	ND_TCHECK(bp->status);
 
 	ND_TCHECK(bp->stratum);
 	ND_PRINT((ndo, ", Stratum %u (%s)",
@@ -285,7 +286,7 @@ ntp_time_print(netdissect_options *ndo,
 	switch (bp->stratum) {
 
 	case UNSPECIFIED:
-		ND_PRINT((ndo, "%#08x", (unsigned) td->refid));
+		ND_PRINT((ndo, "%#08x", (unsigned) EXTRACT_32BITS(bp->refid)));
 		break;
 
 	case PRIM_REF:
