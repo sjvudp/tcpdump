@@ -711,7 +711,7 @@ ntp_time_print(netdissect_options *ndo,
 	return;
 
 trunc:
-	ND_PRINT((ndo, " %s", tstr));
+	ND_PRINT((ndo, " [|ntp]"));
 }
 
 /*

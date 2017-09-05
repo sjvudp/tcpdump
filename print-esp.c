@@ -189,10 +189,9 @@ int esp_print_decrypt_buffer_by_ikev2(netdissect_options *ndo,
 {
 	struct sa_list *sa;
 	const u_char *iv;
-	unsigned int len;
-	EVP_CIPHER_CTX *ctx;
-	unsigned int block_size, output_buffer_size;
 	u_char *output_buffer;
+	int len, block_size, output_buffer_size;
+	EVP_CIPHER_CTX *ctx;
 
 	/* initiator arg is any non-zero value */
 	if(initiator) initiator=1;
@@ -660,8 +659,8 @@ esp_print(netdissect_options *ndo,
 	const u_char *ivoff;
 	const u_char *p;
 	EVP_CIPHER_CTX *ctx;
-	unsigned int block_size, output_buffer_size;
 	u_char *output_buffer;
+	int block_size, output_buffer_size;
 #endif
 
 	esp = (const struct newesp *)bp;
@@ -773,24 +772,16 @@ esp_print(netdissect_options *ndo,
 				(*ndo->ndo_warning)(ndo, "espkey init failed");
 
 			p = ivoff;
-			set_cipher_parameters(ctx, NULL, NULL, p, 0);
+			EVP_CipherInit(ctx, NULL, NULL, p, 0);
 			len = ep - (p + ivlen);
 
-			/*
-			 * Allocate a buffer for the decrypted data.
-			 * The output buffer must be separate from the
-			 * input buffer, and its size must be a multiple
-			 * of the cipher block size.
-			 */
-			block_size = (unsigned int)EVP_CIPHER_CTX_block_size(ctx);
+			/* We need a block size */
+			block_size = EVP_CIPHER_CTX_block_size(ctx);
+			/* We need the buffer size to be multiple of a block size */
 			output_buffer_size = len + (block_size - len % block_size);
-			output_buffer = (u_char *)malloc(output_buffer_size);
-			if (output_buffer == NULL) {
-				(*ndo->ndo_warning)(ndo, "can't allocate memory for decryption buffer");
-				EVP_CIPHER_CTX_free(ctx);
-				return -1;
-			}
-
+			output_buffer = (u_char *)calloc(output_buffer_size, sizeof(u_char));
+			/* EVP_Cipher output buffer should be different from the input one.
+			 * Also it should be of size that is multiple of cipher block size. */
 			EVP_Cipher(ctx, output_buffer, p + ivlen, len);
 			EVP_CIPHER_CTX_free(ctx);
 			/*
