@@ -643,17 +643,14 @@ ntp_time_print(netdissect_options *ndo,
 	uint8_t mode, version;
 	uint32_t refid;
 	unsigned i_lev = 1;		/* indent level */
+	uint32_t extra;			/* octets after NTP basic header */
 
 	if (length < NTP_TIMEMSG_MINLEN)
 		goto invalid;
 
-	ND_TCHECK(bp->status);
-
-	version = (int)(bp->status & VERSIONMASK) >> VERSIONSHIFT;
-
-	mode = bp->status & MODEMASK;
-	if (!ndo->ndo_vflag)
-		return;
+	extra = length - NTP_TIMEMSG_MINLEN;
+	version = (bp->status & VERSIONMASK) >> VERSIONSHIFT;
+	mode = (bp->status & MODEMASK) >> MODESHIFT;
 
 	ND_TCHECK(bp->stratum);
 	indent(ndo, i_lev);
@@ -750,11 +747,11 @@ ntp_time_print(netdissect_options *ndo,
 				    &(bp->xmt_timestamp));
 		}
 	}
-	if (length - NTP_TIMEMSG_MINLEN == 4) { 	/* Optional: key-id */
+	if (extra == 4) { 	/* Optional: key-id */
 		ND_TCHECK(bp->key_id);
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(bp->key_id)));
-	} else if (length - NTP_TIMEMSG_MINLEN == 4 + 16) {
+	} else if (extra == 4 + 16) {
 		/* Optional: key-id + 128 bit digest */
 		ND_TCHECK(bp->key_id);
 		indent(ndo, i_lev);
@@ -762,7 +759,7 @@ ntp_time_print(netdissect_options *ndo,
 		ND_TCHECK2(bp->message_digest, 16);
 		print_ntp_digest(ndo, 0, (const uint32_t *) bp->message_digest,
 				 16);
-	} else if (length - NTP_TIMEMSG_MINLEN == 4 + 20) {
+	} else if (extra == 4 + 20) {
 		/* Optional: key-id + 160-bit digest */
 		ND_TCHECK(bp->key_id);
 		indent(ndo, i_lev);
@@ -770,10 +767,16 @@ ntp_time_print(netdissect_options *ndo,
 		ND_TCHECK2(bp->message_digest, 20);
 		print_ntp_digest(ndo, 0, (const uint32_t *) bp->message_digest,
 				 20);
-	} else if (length > NTP_TIMEMSG_MINLEN) {
-		indent(ndo, i_lev);
-		ND_PRINT((ndo, "(%u unprocessed octets)",
-			  length - NTP_TIMEMSG_MINLEN));
+	} else if (extra != 0) {
+		if (extra < 8 || extra % 4 != 0) {
+			indent(ndo, i_lev);
+			ND_PRINT((ndo, "(%u unexpected extra octets)",
+				  extra));
+		} else {
+			indent(ndo, i_lev);
+			ND_PRINT((ndo, "(%u octets for extension field(s))",
+				  extra));
+		}
 	}
 	return;
 
