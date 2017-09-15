@@ -133,8 +133,8 @@ struct ntp_time_data {
 	struct l_fixedpt org_timestamp;
 	struct l_fixedpt rec_timestamp;
 	struct l_fixedpt xmt_timestamp;
-	nd_uint32_t key_id;
-	nd_uint8_t  message_digest[20];
+	/* optional extra octets (EFs, MAC) may follow... */
+	nd_uint8_t extra[1];
 };
 /*
  *	Leap Second Codes (high order two bits)
@@ -634,6 +634,43 @@ print_ntp_digest(netdissect_options *ndo, const unsigned i_lev,
 }
 
 /*
+ * Print rest of NTP time requests and responses (optional MAC and
+ * extension fields)
+ */
+static void
+ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
+		    const nd_uint8_t *cp, u_int extra_length)
+{
+	if (extra_length == 0)
+		return;			/* done! */
+	else if (extra_length == 4) { 	/* Optional: key-id */
+		ND_TCHECK2(*cp, 4);
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(cp)));
+	} else if (extra_length == 4 + 16 || extra_length == 4 + 20) {
+		/* Optional: key-id + 128 bit digest */
+		ND_TCHECK2(*cp, 4);
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(cp)));
+		ND_TCHECK2(cp[4], extra_length - 4);
+		print_ntp_digest(ndo, 0, (const uint32_t *) cp + 4,
+				 extra_length - 4);
+	} else if (extra_length >= 8 && extra_length % 4 == 0) {
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "(%u octets for extension field(s))",
+			  extra_length));
+	} else {
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "(%u unexpected extra octets)",
+			  extra_length));
+	}
+	return;
+
+trunc:
+	ND_PRINT((ndo, " %s", tstr));
+}
+
+/*
  * Print NTP time requests and responses
  */
 static void
@@ -643,12 +680,10 @@ ntp_time_print(netdissect_options *ndo,
 	uint8_t mode, version;
 	uint32_t refid;
 	unsigned i_lev = 1;		/* indent level */
-	uint32_t extra;			/* octets after NTP basic header */
 
 	if (length < NTP_TIMEMSG_MINLEN)
 		goto invalid;
 
-	extra = length - NTP_TIMEMSG_MINLEN;
 	version = (bp->status & VERSIONMASK) >> VERSIONSHIFT;
 	mode = (bp->status & MODEMASK) >> MODESHIFT;
 
@@ -747,37 +782,8 @@ ntp_time_print(netdissect_options *ndo,
 				    &(bp->xmt_timestamp));
 		}
 	}
-	if (extra == 4) { 	/* Optional: key-id */
-		ND_TCHECK(bp->key_id);
-		indent(ndo, i_lev);
-		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(bp->key_id)));
-	} else if (extra == 4 + 16) {
-		/* Optional: key-id + 128 bit digest */
-		ND_TCHECK(bp->key_id);
-		indent(ndo, i_lev);
-		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(bp->key_id)));
-		ND_TCHECK2(bp->message_digest, 16);
-		print_ntp_digest(ndo, 0, (const uint32_t *) bp->message_digest,
-				 16);
-	} else if (extra == 4 + 20) {
-		/* Optional: key-id + 160-bit digest */
-		ND_TCHECK(bp->key_id);
-		indent(ndo, i_lev);
-		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(&bp->key_id)));
-		ND_TCHECK2(bp->message_digest, 20);
-		print_ntp_digest(ndo, 0, (const uint32_t *) bp->message_digest,
-				 20);
-	} else if (extra != 0) {
-		if (extra < 8 || extra % 4 != 0) {
-			indent(ndo, i_lev);
-			ND_PRINT((ndo, "(%u unexpected extra octets)",
-				  extra));
-		} else {
-			indent(ndo, i_lev);
-			ND_PRINT((ndo, "(%u octets for extension field(s))",
-				  extra));
-		}
-	}
+	ntp_time_print_rest(ndo, i_lev, bp->extra,
+			    length - NTP_TIMEMSG_MINLEN);
 	return;
 
 invalid:
