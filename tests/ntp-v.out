@@ -9,7 +9,7 @@ IP (tos 0xb8, ttl 64, id 24722, offset 0, flags [DF], proto UDP (17), length 80)
     Stratum 0 (unspecified), poll 3 (8s), precision -23
     Root Delay: 0.000000, Root dispersion: 0.001373, Reference-ID: 0x53544550 (STEP)
     Reference Timestamp:  0.000000000
-    Key id: 0
+    Crypto-NAK (0)
 IP (tos 0x0, ttl 64, id 5777, offset 0, flags [DF], proto UDP (17), length 100)
     192.168.100.2.42818 > 192.168.100.1.123: NTP leap indicator=0 (Nominal), Version=4, Mode=3 (Client), length=72
     Stratum 0 (unspecified), poll 0 (1s), precision 32

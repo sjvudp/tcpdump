@@ -679,12 +679,12 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 {
 	if (extra_length == 0)
 		return;			/* done! */
-	else if (extra_length == 4) { 	/* Optional: key-id */
+	else if (extra_length == 4) { 	/* Optional: Crypto-NAK */
 		ND_TCHECK2(*cp, 4);
 		indent(ndo, i_lev);
-		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(cp)));
+		ND_PRINT((ndo, "Crypto-NAK (%u)", EXTRACT_32BITS(cp)));
 	} else if (extra_length == 4 + 16 || extra_length == 4 + 20) {
-		/* Optional: key-id + 128 bit digest */
+		/* Optional: MAC (key-id + 128 bit or 160 bit digest) */
 		ND_TCHECK2(*cp, 4);
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "MAC: Key ID: %u", EXTRACT_32BITS(cp)));
@@ -693,6 +693,7 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 				 (const uint32_t *) ((const char *) cp + 4),
 				 extra_length - 4);
 	} else if (extra_length >= 8 && extra_length % 4 == 0) {
+		/* Optional: Extension Field(s) + MAC */
 		const struct ntp_EF *efp = (const struct ntp_EF *) cp;
 		uint8_t code;
 		uint16_t len;
