@@ -696,19 +696,22 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		const struct ntp_EF *efp = (const struct ntp_EF *) cp;
 		uint8_t code;
 		uint16_t len;
+		const char *op_str;
 
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "(%u extra octets with extension field(s))",
 			  extra_length));
 		ND_TCHECK(*efp);
-		code = (efp->R_E_Code & 0x3f) >> 2;
+		code = efp->R_E_Code & 0x3f;
 		len = EXTRACT_16BITS(&efp->length);
+		op_str = efp->f_type == 2 ?
+			tok2str(ntp_EFC_values, "unknown", code) :
+			"unspecified";
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "EF: R=%hu, E=%hu, Code=%hu (%s), Type=%hu, "
 			  "Length=%hu",
 			  (efp->R_E_Code & 0x80) != 0,
-			  (efp->R_E_Code & 0x40) != 0, code,
-			  tok2str(ntp_EFC_values, "unknown", code),
+			  (efp->R_E_Code & 0x40) != 0, code, op_str,
 			  efp->f_type, len));
 
 		/* tail recursion */
