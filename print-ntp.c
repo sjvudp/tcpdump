@@ -136,6 +136,42 @@ struct ntp_time_data {
 	/* optional extra octets (EFs, MAC) may follow... */
 	nd_uint8_t extra[1];
 };
+
+/* NTP Extension Field (RFC 5906) */
+struct ntp_EF {
+	nd_uint8_t R_E_Code;		/* R, E, Code */
+	nd_uint8_t f_type;		/* Field Type */
+	nd_uint16_t length;		/* Length */
+};
+
+/* NTP Extension Field Codes (RFC 5906) */
+typedef	enum {
+	EFC_NoOp,		/* No Operation (0) */
+	EFC_Assoc,		/* Association Message (1) */
+	EFC_Cert,		/* Certificate Message (2) */
+	EFC_Cookie,		/* Cookie Message (3) */
+	EFC_Autokey,		/* Autokey Message (4) */
+	EFC_LeapSec,		/* Leapseconds Message (5) */
+	EFC_Sign,		/* Sign Message (6) */
+	EFC_ID_IFF,		/* Identity Message IFF (7) */
+	EFC_ID_GQ,		/* Identity Message GQ (8) */
+	EFC_ID_MV,		/* Identity Message MV (9) */
+} EF_Code;
+
+static const struct tok ntp_EFC_values[] = {
+	{ EFC_NoOp,	"No-Op" },
+	{ EFC_Assoc,	"ASSOC" },
+	{ EFC_Cert,	"CERT" },
+	{ EFC_Cookie,	"COOKIE" },
+	{ EFC_Autokey,	"AUTO" },
+	{ EFC_LeapSec,	"LEAP" },
+	{ EFC_Sign,	"SIGN" },
+	{ EFC_ID_IFF,	"ID_IFF" },
+	{ EFC_ID_GQ,	"ID_GQ" },
+	{ EFC_ID_MV,	"ID_MV" },
+	{ 0, NULL }
+};
+
 /*
  *	Leap Second Codes (high order two bits)
  */
@@ -651,15 +687,40 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		/* Optional: key-id + 128 bit digest */
 		ND_TCHECK2(*cp, 4);
 		indent(ndo, i_lev);
-		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(cp)));
+		ND_PRINT((ndo, "MAC: Key ID: %u", EXTRACT_32BITS(cp)));
 		ND_TCHECK2(cp[4], extra_length - 4);
 		print_ntp_digest(ndo, 0,
 				 (const uint32_t *) ((const char *) cp + 4),
 				 extra_length - 4);
 	} else if (extra_length >= 8 && extra_length % 4 == 0) {
+		const struct ntp_EF *efp = (const struct ntp_EF *) cp;
+		uint8_t code;
+		uint16_t len;
+
 		indent(ndo, i_lev);
-		ND_PRINT((ndo, "(%u octets for extension field(s))",
+		ND_PRINT((ndo, "(%u extra octets with extension field(s))",
 			  extra_length));
+		ND_TCHECK(*efp);
+		code = (efp->R_E_Code & 0x3f) >> 2;
+		len = EXTRACT_16BITS(&efp->length);
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "EF: R=%hu, E=%hu, Code=%hu (%s), Type=%hu, "
+			  "Length=%hu",
+			  (efp->R_E_Code & 0x80) != 0,
+			  (efp->R_E_Code & 0x40) != 0, code,
+			  tok2str(ntp_EFC_values, "unknown", code),
+			  efp->f_type, len));
+
+		/* tail recursion */
+		if (len <= extra_length && len >= 8 && len % 4 == 0)
+			ntp_time_print_rest(ndo, i_lev, cp + len,
+					    extra_length - len);
+		else {
+			indent(ndo, i_lev);
+			ND_PRINT((ndo,
+				  "(invalid length of EF (%u), remaining %u)",
+				  len, extra_length));
+		}
 	} else {
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "(%u unexpected extra octets)",
