@@ -697,17 +697,26 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		const struct ntp_EF *efp = (const struct ntp_EF *) cp;
 		uint8_t code;
 		uint16_t len;
+		uint8_t is_autokey_v2;
 		const char *op_str;
 
+#if 1
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "(%u extra octets with extension field(s))",
 			  extra_length));
+#endif
 		ND_TCHECK(*efp);
 		code = efp->R_E_Code & 0x3f;
 		len = EXTRACT_16BITS(&efp->length);
-		op_str = efp->f_type == 2 ?
+		is_autokey_v2 = efp->f_type == 2;
+		op_str = is_autokey_v2 ?
 			tok2str(ntp_EFC_values, "unknown", code) :
 			"unspecified";
+#if 1
+		indent(ndo, i_lev);
+		ND_PRINT((ndo, "EF-word=0x%04x", EXTRACT_16BITS(&efp->R_E_Code)));
+
+#endif
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "EF: R=%hu, E=%hu, Code=%hu (%s), Type=%hu, "
 			  "Length=%hu",
