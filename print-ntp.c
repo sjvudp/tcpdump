@@ -33,6 +33,7 @@
 #ifdef HAVE_STRFTIME
 #include <time.h>
 #endif
+#include <string.h>
 
 #include "netdissect.h"
 #include "addrtoname.h"
@@ -137,11 +138,50 @@ struct ntp_time_data {
 	nd_uint8_t extra[1];
 };
 
+/*
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |R|E|   Code    |  Field Type   |            Length             |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Association ID                        |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Timestamp                           |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Filestamp                           |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                          Value Length                         |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * \                                                               /
+ * /                             Value                             \
+ * \                                                               /
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                        Signature Length                       |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * \                                                               /
+ * /                           Signature                           \
+ * \                                                               /
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * \                                                               /
+ * /                      Padding (if needed)                      \
+ * \                                                               /
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *                Figure 7: NTPv4 Extension Field Format
+ */
 /* NTP Extension Field (RFC 5906) */
 struct ntp_EF {
 	nd_uint8_t R_E_Code;		/* R, E, Code */
 	nd_uint8_t f_type;		/* Field Type */
 	nd_uint16_t length;		/* Length */
+};
+
+/* NTP Autokey v2 Extension Field (RFC 5906) */
+struct ntp_EF_AK_v2 {
+	struct ntp_EF header;		/* common extension field header */
+	nd_uint32_t assoc;		/* Association ID */
+	nd_uint32_t timestamp;		/* Timestamp */
+	nd_uint32_t filestamp;		/* Filestamp */
+	nd_uint32_t val_length;		/* Value Length */
+	nd_uint8_t value;		/* Value (first octet) */
 };
 
 /* NTP Extension Field Codes (RFC 5906) */
@@ -169,6 +209,46 @@ static const struct tok ntp_EFC_values[] = {
 	{ EFC_ID_IFF,	"ID_IFF" },
 	{ EFC_ID_GQ,	"ID_GQ" },
 	{ EFC_ID_MV,	"ID_MV" },
+	{ 0, NULL }
+};
+
+/* NTP association status bits (RFC 5906) */
+typedef	enum {
+	ASB_ENAB,		/* ENAB (0) */
+	ASB_LVAL,		/* LVAL (1) */
+	ASB_RESERVED_1,		/* (reserved) (2) */
+	ASB_RESERVED_2,		/* (reserved) (3) */
+	ASB_PC,			/* PC identity scheme (4) */
+	ASB_IFF,		/* IFF identity scheme (5) */
+	ASB_GQ,			/* GQ identity scheme (6) */
+	ASB_MV,			/* MV identity scheme (7) */
+	ASB_CERT,		/* CERT (8) */
+	ASB_VRFY,		/* VRFY (9) */
+	ASB_PROV,		/* PROV (proventic) (10) */
+	ASB_COOKIE,		/* COOK(IE) (11) */
+	ASB_AUTO,		/* AUTO (12) */
+	ASB_SIGN,		/* SIGN (13) */
+	ASB_LEAP,		/* LEAP (14) */
+	ASB_RESERVED_3,		/* (reserved) (15) */
+} Assoc_Status_Bits;
+
+static const struct tok ntp_ASB_values[] = {
+	{ ASB_ENAB,		"ENAB" },
+	{ ASB_LVAL,		"LVAL" },
+	{ ASB_RESERVED_1,	"RESRVD_1" },
+	{ ASB_RESERVED_2,	"RESRVD_2" },
+	{ ASB_PC,		"PC" },
+	{ ASB_IFF,		"IFF" },
+	{ ASB_GQ,		"GQ" },
+	{ ASB_MV,		"MV" },
+	{ ASB_CERT,		"CERT" },
+	{ ASB_VRFY,		"VRFY" },
+	{ ASB_PROV,		"PROV" },
+	{ ASB_COOKIE,		"COOKIE" },
+	{ ASB_AUTO,		"AUTO" },
+	{ ASB_SIGN,		"SIGN" },
+	{ ASB_LEAP,		"LEAP" },
+	{ ASB_RESERVED_3,	"RESRVD_3" },
 	{ 0, NULL }
 };
 
@@ -626,14 +706,39 @@ union ntpdata {
 };
 
 /*
+ * format zero-terminated indent for level `n' on a new line
+ */
+static char indent_buffer[80];	/* holds current indent string (with \n) */
+
+static void
+indent0(unsigned n, const char *tag)
+{
+	static const char *ind_str;
+	unsigned ind_inc, ind_cap;
+	char *ibp;
+
+	ind_cap = sizeof(indent_buffer) - 1;
+	ind_str = "    ";
+	ind_inc = strlen(ind_str);
+	for (ibp = indent_buffer, *ibp++ = '\n', --ind_cap; n != 0; --n) {
+		if (ind_cap > ind_inc) {
+			memcpy(ibp, ind_str, ind_inc);
+			ibp += ind_inc;
+			ind_cap -= ind_inc;
+		} else
+			break;
+	}
+	strncpy(ibp, tag, ind_cap);
+}
+
+/*
  * output indent for level `n' on a new line
  */
 static void
 indent(netdissect_options *ndo, unsigned n)
 {
-	ND_PRINT((ndo, "\n"));
-	while (n-- != 0)
-		ND_PRINT((ndo, "    "));
+	indent0(n, "");
+	ND_PRINT((ndo, indent_buffer));
 }
 
 /*
@@ -670,6 +775,36 @@ print_ntp_digest(netdissect_options *ndo, const unsigned i_lev,
 }
 
 /*
+ *                      1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |    Digest / Signature NID     |    Client     | Ident |  Host |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *                         Figure 8: Status Word
+ */
+/* Print association status word */
+static void
+ntp_EF_print_status(netdissect_options *ndo, const nd_uint32_t *status)
+{
+	uint16_t	astatus;
+	uint16_t	nid;
+
+	astatus = (uint16_t) (EXTRACT_32BITS(status) >> 16);
+	nid = (uint16_t) (EXTRACT_32BITS(status) & 0xffff);
+	if (ndo->ndo_vflag < 2) {
+		ND_PRINT((ndo, ", NID=0x%04x, Status=0x%04x (%s)",
+			  nid, astatus,
+			  bittok2str(ntp_ASB_values, NULL, astatus)));
+	} else {
+		ND_PRINT((ndo, ", NID=0x%04x, client=0x%03x, ident=0x%x, "
+			  "host=0x%x (%s)",
+			  nid, (astatus & 0xff00) >> 8,
+			  (astatus & 0x00f0) >> 4, astatus & 0x000f,
+			  bittok2str(ntp_ASB_values, NULL, astatus)));
+	}
+}
+
+/*
  * Print rest of NTP time requests and responses (optional MAC and
  * extension fields)
  */
@@ -695,7 +830,7 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 	} else if (extra_length >= 8 && extra_length % 4 == 0) {
 		/* Optional: Extension Field(s) + MAC */
 		const struct ntp_EF *efp = (const struct ntp_EF *) cp;
-		uint8_t code;
+		uint8_t R, E, code;
 		uint16_t len;
 		uint8_t is_autokey_v2;
 		const char *op_str;
@@ -706,9 +841,12 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 			  extra_length));
 #endif
 		ND_TCHECK(*efp);
+		R = (efp->R_E_Code & 0x80) != 0;
+		E = (efp->R_E_Code & 0x40) != 0;
 		code = efp->R_E_Code & 0x3f;
 		len = EXTRACT_16BITS(&efp->length);
-		is_autokey_v2 = efp->f_type == 2;
+		is_autokey_v2 = efp->f_type == 2 &&
+			len >= sizeof(struct ntp_EF_AK_v2) - 1;
 		op_str = is_autokey_v2 ?
 			tok2str(ntp_EFC_values, "unknown", code) :
 			"unspecified";
@@ -720,9 +858,151 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "EF: R=%hu, E=%hu, Code=%hu (%s), Type=%hu, "
 			  "Length=%hu",
-			  (efp->R_E_Code & 0x80) != 0,
-			  (efp->R_E_Code & 0x40) != 0, code, op_str,
-			  efp->f_type, len));
+			  R, E, code, op_str, efp->f_type, len));
+		if (ndo->ndo_vflag > 1 && is_autokey_v2) {
+			const struct ntp_EF_AK_v2 *akp;
+			uint32_t val_len;
+
+			akp = (const struct ntp_EF_AK_v2 *) cp;
+			ND_TCHECK2(*(const uint8_t *)cp, len);
+#if 1
+			if (is_autokey_v2) {
+				indent(ndo, i_lev + 1);
+				ND_PRINT((ndo, "Autokey v2:Assoc=0x%08x, "
+					  "timestamp=0x%08x, filestamp=0x%08x,"
+					  " length=%u",
+					  EXTRACT_32BITS(akp->assoc),
+					  EXTRACT_32BITS(akp->timestamp),
+					  EXTRACT_32BITS(akp->filestamp),
+					  EXTRACT_32BITS(akp->val_length)));
+			}
+#endif
+			switch (code) {
+			case EFC_NoOp:
+				break;
+			case EFC_Assoc:
+				indent(ndo, i_lev + 1);
+				ntp_EF_print_status(ndo, (const nd_uint32_t *)
+						    &akp->timestamp);
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len) {
+					indent0(i_lev + 1, "Host=");
+					hex_and_ascii_print(ndo, indent_buffer,
+							    &akp->value,
+							    val_len);
+				} else {
+					indent(ndo, i_lev);
+					ND_PRINT((ndo, "(value length %u "
+						  "exceeds EF length %u)",
+						  val_len, len));
+				}
+				break;
+			case EFC_Cert:
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len) {
+					indent0(i_lev + 1,
+						R ? "Cert=" : "Subject=");
+					hex_and_ascii_print(ndo, indent_buffer,
+							    &akp->value,
+							    val_len);
+				}				
+				break;
+			case EFC_Cookie:
+				indent(ndo, i_lev + 1);
+				ntp_EF_print_status(ndo, (const nd_uint32_t *)
+						    &akp->timestamp);
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len) {
+					indent0(i_lev + 1,
+						R ? "Cookie=" : "PubKey=");
+					hex_and_ascii_print(ndo, indent_buffer,
+							    &akp->value,
+							    val_len);
+				} else {
+					indent(ndo, i_lev);
+					ND_PRINT((ndo, "(value length %u "
+						  "exceeds EF length %u)",
+						  val_len, len));
+				}
+				break;
+			case EFC_Autokey:
+				indent(ndo, i_lev + 1);
+				ntp_EF_print_status(ndo, (const nd_uint32_t *)
+						    &akp->timestamp);
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len && R && val_len == 8) {
+					indent(ndo, i_lev + 1);
+					ND_PRINT((ndo, "final key: id=0x%08x"
+						  ", index=%u",
+						  EXTRACT_32BITS(&akp->value),
+						  EXTRACT_32BITS(&akp->value +
+								 4)));
+				} else {
+					indent(ndo, i_lev);
+					ND_PRINT((ndo, "(bad value length %u)",
+						  val_len));
+				}
+				break;
+			case EFC_LeapSec:
+				indent(ndo, i_lev + 1);
+				ntp_EF_print_status(ndo, (const nd_uint32_t *)
+						    &akp->timestamp);
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len && R && val_len == 12) {
+					indent(ndo, i_lev + 1);
+					ND_PRINT((ndo, "scheduled=0x%08x"
+						  ", expiration=0x%08x, TAI=%d",
+						  EXTRACT_32BITS(&akp->value),
+						  EXTRACT_32BITS(&akp->value
+								 + 4),
+						  EXTRACT_32BITS(&akp->value
+								 + 8)));
+				} else {
+					indent(ndo, i_lev);
+					ND_PRINT((ndo, "(bad value length %u)",
+						  val_len));
+				}
+				break;
+			case EFC_Sign:
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len) {
+					indent0(i_lev + 1,
+						R ? "Cert=" : "CSR=");
+					hex_and_ascii_print(ndo, indent_buffer,
+							    &akp->value,
+							    val_len);
+				}				
+				break;
+			case EFC_ID_IFF:
+			case EFC_ID_GQ:
+			case EFC_ID_MV:
+				val_len = EXTRACT_32BITS(akp->val_length);
+				if (&akp->value - (const nd_uint8_t *) akp +
+				    val_len < len) {
+					indent0(i_lev + 1,
+						R ? "response=" : "challenge=");
+					hex_and_ascii_print(ndo, indent_buffer,
+							    &akp->value,
+							    val_len);
+				} else {
+					indent(ndo, i_lev);
+					ND_PRINT((ndo, "(value length %u "
+						  "exceeds EF length %u)",
+						  val_len, len));
+				}				
+				break;
+			default:
+				indent(ndo, i_lev);
+				ND_PRINT((ndo, "(unhandled autokey code %u)",
+					  code));
+			}
+		}
 
 		/* tail recursion */
 		if (len <= extra_length && len >= 8 && len % 4 == 0)
@@ -1313,7 +1593,7 @@ trunc:
  */
 void
 ntp_print(netdissect_options *ndo,
-          register const u_char *cp, u_int length)
+	  register const u_char *cp, u_int length)
 {
 	register const union ntpdata *bp = (const union ntpdata *)cp;
 	int mode, version, leapind;
