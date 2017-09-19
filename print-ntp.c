@@ -178,6 +178,7 @@ struct ntp_EF {
 struct ntp_EF_AK_v2 {
 	struct ntp_EF header;		/* common extension field header */
 	nd_uint32_t assoc;		/* Association ID */
+	/* the rest is optional */
 	nd_uint32_t timestamp;		/* Timestamp */
 	nd_uint32_t filestamp;		/* Filestamp */
 	nd_uint32_t val_length;		/* Value Length */
@@ -845,8 +846,7 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		E = (efp->R_E_Code & 0x40) != 0;
 		code = efp->R_E_Code & 0x3f;
 		len = EXTRACT_16BITS(&efp->length);
-		is_autokey_v2 = efp->f_type == 2 &&
-			len >= sizeof(struct ntp_EF_AK_v2) - 1;
+		is_autokey_v2 = efp->f_type == 2 && len >= 8;
 		op_str = is_autokey_v2 ?
 			tok2str(ntp_EFC_values, "unknown", code) :
 			"unspecified";
