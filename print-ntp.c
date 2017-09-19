@@ -1511,23 +1511,8 @@ ntp_control_print(netdissect_options *ndo,
 				unprocessed = 0;
 			}
 		}
-		if (unprocessed > 0) {
-			const nd_uint32_t *key_id;
-
-			indent(ndo, i_lev);
-			ND_PRINT((ndo, "MAC(size %u):", unprocessed));
-			key_id = (const nd_uint32_t *)
-				((const uint8_t *)cd + endpos);
-			ND_TCHECK(*key_id);
-			indent(ndo, i_lev + 1);
-			ND_PRINT((ndo, "KeyID=%u", EXTRACT_32BITS(*key_id)));
-			unprocessed -= sizeof(*key_id);
-
-			++key_id;	/* digest follows Key ID */
-			ND_TCHECK2(*key_id, unprocessed);
-			print_ntp_digest(ndo, 0, (uint32_t *) key_id,
-					 unprocessed);
-		}
+		ntp_time_print_rest(ndo, i_lev, (const uint8_t *)cd + endpos,
+				    unprocessed);
 	}
 	return;
 
