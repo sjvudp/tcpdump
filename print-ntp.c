@@ -653,7 +653,8 @@ ntp_time_print_rest(netdissect_options *ndo, const unsigned i_lev,
 		indent(ndo, i_lev);
 		ND_PRINT((ndo, "Key id: %u", EXTRACT_32BITS(cp)));
 		ND_TCHECK2(cp[4], extra_length - 4);
-		print_ntp_digest(ndo, 0, (const uint32_t *) cp + 4,
+		print_ntp_digest(ndo, 0,
+				 (const uint32_t *) ((const char *) cp + 4),
 				 extra_length - 4);
 	} else if (extra_length >= 8 && extra_length % 4 == 0) {
 		indent(ndo, i_lev);
